@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f0f4ff">
+<title>Finanze</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+body{background:#f0f4ff;font-family:-apple-system,'Segoe UI',sans-serif;overscroll-behavior:none;color:#1e293b}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+input{-webkit-appearance:none;border-radius:11px}
+::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel" data-presets="react,env">
+const {useState,useEffect}=React;
+
+const TX_TYPES={
+  income_fatturato:    {label:"Entrata Fatturata",     icon:"📄",color:"#16a34a",bg:"#dcfce7",group:"income"},
+  income_non_fatt:     {label:"Entrata Non Fatturata", icon:"💵",color:"#15803d",bg:"#bbf7d0",group:"income"},
+  expense_professional:{label:"Spesa Professionale",   icon:"💼",color:"#2563eb",bg:"#dbeafe",group:"expense"},
+  expense_personal:    {label:"Spesa Personale",       icon:"🛒",color:"#dc2626",bg:"#fee2e2",group:"expense"},
+  tax_irpef:           {label:"Imposta Sostitutiva",   icon:"🏛️",color:"#d97706",bg:"#fef3c7",group:"tax"},
+  tax_enpab:           {label:"ENPAB",                 icon:"🧾",color:"#ea580c",bg:"#ffedd5",group:"tax"},
+  tax_bollo:           {label:"Imposta di Bollo",      icon:"📮",color:"#c2410c",bg:"#fee2e2",group:"tax"},
+  annual:              {label:"Pagamento Annuale",     icon:"📅",color:"#7c3aed",bg:"#ede9fe",group:"annual"},
+};
+
+// Default conto per tipo transazione
+const DEFAULT_CONTO={
+  income_fatturato:"fineco", income_non_fatt:"fineco",
+  expense_professional:"ing", expense_personal:"ing",
+  tax_irpef:"ing", tax_enpab:"ing", tax_bollo:"fineco", annual:"ing",
+};
+
+const SUBCATS={
+  income_fatturato:    [{id:"visita",l:"Visita privata"},{id:"pacchetto",l:"Pacchetto"},{id:"corso",l:"Corso/Formazione"},{id:"consulenza_az",l:"Consulenza aziendale"},{id:"altro",l:"Altro"}],
+  income_non_fatt:     [{id:"visita",l:"Visita"},{id:"consulenza",l:"Consulenza"},{id:"altro",l:"Altro"}],
+  expense_professional:[{id:"formazione",l:"Formazione/ECM"},{id:"software",l:"Software/App"},{id:"materiale",l:"Materiale clinico"},{id:"trasferta",l:"Trasferta"},{id:"studio",l:"Affitto studio"},{id:"marketing",l:"Marketing/Sito"},{id:"altro",l:"Altro"}],
+  expense_personal:    [{id:"cibo",l:"Cibo & Spesa"},{id:"ristoranti",l:"Ristoranti"},{id:"trasporti",l:"Trasporti"},{id:"salute",l:"Salute"},{id:"casa",l:"Casa & Utenze"},{id:"svago",l:"Svago"},{id:"abbonamenti",l:"Abbonamenti"},{id:"vestiti",l:"Vestiti"},{id:"altro",l:"Altro"}],
+  tax_irpef:           [{id:"acconto1",l:"Acconto Giugno (40%)"},{id:"acconto2",l:"Acconto Novembre (60%)"},{id:"saldo",l:"Saldo a giugno"}],
+  tax_enpab:           [{id:"soggettivo",l:"Contributo soggettivo"},{id:"integrativo",l:"Contributo integrativo (4%)"},{id:"minimale",l:"Contributo minimale"}],
+  tax_bollo:           [{id:"bollo",l:"Bollo virtuale (€2)"}],
+  annual:              [{id:"ordine",l:"Ordine Biologi"},{id:"assicurazione",l:"Assicurazione RC Prof."},{id:"software_ann",l:"Software annuale"},{id:"iscrizione_soc",l:"Società scientifica"},{id:"universita",l:"Univ. San Raffaele"},{id:"altro",l:"Altro"}],
+};
+
+const MONTHS=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+const TODAY=new Date().toISOString().split("T")[0];
+const CUR_M=new Date().getMonth(),CUR_Y=new Date().getFullYear();
+
+function fmt(n){return new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(n||0)}
+function mKey(d){const x=new Date(d);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")}
+function sumType(txs,t){return txs.filter(x=>x.txType===t).reduce((s,x)=>s+Number(x.amount),0)}
+function sumGroup(txs,g){return txs.filter(x=>TX_TYPES[x.txType]?.group===g).reduce((s,x)=>s+Number(x.amount),0)}
+function sLoad(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch{return null}}
+function sSave(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+
+function contoBal(txs,initBal,conto){
+  const rel=txs.filter(t=>t.conto===conto);
+  const inc=rel.filter(t=>TX_TYPES[t.txType]?.group==="income").reduce((s,t)=>s+Number(t.amount),0);
+  const out=rel.filter(t=>TX_TYPES[t.txType]?.group!=="income").reduce((s,t)=>s+Number(t.amount),0);
+  return (initBal||0)+inc-out;
+}
+
+function BarSVG({data,h=150}){
+  const maxV=Math.max(...data.map(d=>(d.Fatturato||0)+(d.NonFatt||0)),1);
+  const W=320,pL=40,pB=20,pT=8,pR=8,cW=W-pL-pR,cH=h-pT-pB;
+  const n=data.length,slot=cW/n,bW=slot*0.55;
+  return(
+    <svg width="100%" height={h} viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="xMidYMid meet">
+      {[0,.5,1].map(f=>{const y=pT+cH*(1-f);return(<g key={f}><line x1={pL} y1={y} x2={W-pR} y2={y} stroke="#e2e8f0"/><text x={pL-4} y={y+3} textAnchor="end" fontSize="8" fill="#94a3b8">{Math.round(maxV*f)}</text></g>)})}
+      {data.map((d,i)=>{
+        const x=pL+i*slot+(slot-bW)/2;
+        const h1=(d.Fatturato||0)/maxV*cH,h2=(d.NonFatt||0)/maxV*cH,tot=h1+h2;
+        return(<g key={i}>
+          {tot>0&&<rect x={x} y={pT+cH-tot} width={bW} height={h1} fill="#16a34a" rx="3"/>}
+          {h2>0&&<rect x={x} y={pT+cH-h2} width={bW} height={h2} fill="#86efac" rx="3"/>}
+          <text x={x+bW/2} y={h-4} textAnchor="middle" fontSize="9" fill="#64748b">{d.name}</text>
+        </g>);
+      })}
+    </svg>
+  );
+}
+
+const S={
+  root:{background:"#f0f4ff",minHeight:"100vh",display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto"},
+  screen:{flex:1,overflowY:"auto",paddingBottom:80},
+  page:{padding:"0 14px 24px"},
+  header:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 0 12px"},
+  hTitle:{fontSize:20,fontWeight:700,color:"#1e293b"},
+  hSub:{fontSize:12,color:"#94a3b8"},
+  hBtn:{background:"#2563eb",border:"none",color:"#fff",padding:"7px 14px",borderRadius:20,cursor:"pointer",fontSize:13,fontWeight:600},
+  hBtnSm:{background:"#f1f5f9",border:"none",color:"#64748b",padding:"6px 12px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600},
+  card:{background:"#fff",borderRadius:16,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.08)"},
+  miniCard:{background:"#fff",borderRadius:13,padding:"11px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"},
+  secTitle:{color:"#94a3b8",fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:14,marginBottom:7},
+  txRow:{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid #f1f5f9"},
+  txIcon:{width:40,height:40,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0},
+  empty:{color:"#cbd5e1",textAlign:"center",padding:"36px 16px",fontSize:14,lineHeight:1.7},
+  infoBox:{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:9,padding:"9px 12px",color:"#3b82f6",fontSize:12,lineHeight:1.6,marginBottom:4,marginTop:8},
+  formBox:{background:"#fff",borderRadius:13,padding:14,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:12},
+  chip:{background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:20,padding:"7px 12px",color:"#64748b",fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontWeight:500},
+  amountBox:{display:"flex",alignItems:"center",gap:8,background:"#f8fafc",borderRadius:13,padding:"13px 18px",border:"2px solid #e2e8f0"},
+  amountInput:{flex:1,background:"transparent",border:"none",outline:"none",color:"#1e293b",fontSize:34,fontWeight:700,fontFamily:"Georgia,serif",minWidth:0},
+  input:{width:"100%",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:11,padding:"13px 14px",color:"#1e293b",fontSize:14,outline:"none"},
+  primaryBtn:{width:"100%",marginTop:16,background:"#2563eb",border:"none",borderRadius:12,padding:"15px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"},
+  microBtn:{background:"#f1f5f9",border:"none",borderRadius:8,padding:"5px 10px",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:500},
+  quickAdd:{width:"100%",background:"#2563eb",border:"none",borderRadius:12,padding:"15px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",margin:"10px 0 16px"},
+  navArrow:{background:"#f1f5f9",border:"none",color:"#1e293b",padding:"7px 16px",borderRadius:9,cursor:"pointer",fontSize:20},
+  nav:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#fff",borderTop:"1px solid #f1f5f9",display:"flex",padding:"8px 0 12px",zIndex:50,boxShadow:"0 -2px 12px rgba(0,0,0,0.06)"},
+  navBtn:{flex:1,background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",color:"#94a3b8",padding:"4px 0",gap:1},
+  navActive:{color:"#2563eb"},
+  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",zIndex:100},
+  overlayBox:{background:"#fff",borderRadius:"20px 20px 0 0",padding:24,width:"100%",boxShadow:"0 -4px 20px rgba(0,0,0,0.15)"},
+};
+
+function TxRow({tx,onDelete}){
+  const def=TX_TYPES[tx.txType]||{label:tx.txType,icon:"💸",color:"#64748b",bg:"#f1f5f9",group:"expense"};
+  const sub=(SUBCATS[tx.txType]||[]).find(s=>s.id===tx.subcat);
+  const isIn=def.group==="income";
+  const col=isIn?"#16a34a":def.group==="tax"?"#d97706":def.group==="annual"?"#7c3aed":"#dc2626";
+  const contoLabel=tx.conto==="fineco"?"Fineco":tx.conto==="ing"?"ING":"";
+  return(
+    <div style={S.txRow}>
+      <div style={{...S.txIcon,background:def.bg}}><span style={{fontSize:18}}>{def.icon}</span></div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:"#1e293b",fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.note||sub?.l||def.label}</div>
+        <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>{tx.date} · {contoLabel&&<span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 6px",marginRight:4,fontWeight:600,color:"#64748b"}}>{contoLabel}</span>}{def.label}</div>
+      </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{color:col,fontWeight:700,fontSize:15}}>{isIn?"+":"-"}{fmt(Number(tx.amount))}</div>
+        {onDelete&&<button style={{...S.microBtn,marginTop:3,color:"#ef4444"}} onClick={()=>onDelete(tx.id)}>✕</button>}
+      </div>
+    </div>
+  );
+}
+
+// Modal impostazione saldi iniziali
+function ContiModal({initBal,onSave,onClose}){
+  const [fineco,setFineco]=useState(String(initBal.fineco||""));
+  const [ing,setIng]=useState(String(initBal.ing||""));
+  return(
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.overlayBox} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:17,fontWeight:700,color:"#1e293b",marginBottom:4}}>⚙️ Saldi iniziali conti</div>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:16}}>Inserisci il saldo attuale di ciascun conto</div>
+        <div style={{marginBottom:12}}>
+          <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>🏦 Fineco (lavoro)</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:11,padding:"11px 14px",border:"1.5px solid #e2e8f0"}}>
+            <span style={{color:"#16a34a",fontWeight:700}}>€</span>
+            <input type="number" inputMode="decimal" placeholder="0,00" value={fineco} onChange={e=>setFineco(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
+          </div>
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>🏦 ING (personale)</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:11,padding:"11px 14px",border:"1.5px solid #e2e8f0"}}>
+            <span style={{color:"#2563eb",fontWeight:700}}>€</span>
+            <input type="number" inputMode="decimal" placeholder="0,00" value={ing} onChange={e=>setIng(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
+          </div>
+        </div>
+        <button style={S.primaryBtn} onClick={()=>onSave({fineco:Number(fineco)||0,ing:Number(ing)||0})}>Salva saldi</button>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [tab,setTab]=useState("home");
+  const [txs,setTxs]=useState([]);
+  const [rec,setRec]=useState([]);
+  const [ann,setAnn]=useState([]);
+  const [cfg,setCfg]=useState({aliquota:15,coeffRed:78,newBiz:false});
+  const [initBal,setInitBal]=useState({fineco:0,ing:0});
+  const [showContiModal,setShowContiModal]=useState(false);
+  const [ready,setReady]=useState(false);
+
+  useEffect(()=>{
+    const a=sLoad("fin3:txs"),b=sLoad("fin3:rec"),c=sLoad("fin3:ann"),d=sLoad("fin3:cfg"),e=sLoad("fin3:initBal");
+    if(a)setTxs(a);if(b)setRec(b);if(c)setAnn(c);if(d)setCfg(d);if(e)setInitBal(e);
+    setReady(true);
+  },[]);
+  useEffect(()=>{if(ready)sSave("fin3:txs",txs);},[txs,ready]);
+  useEffect(()=>{if(ready)sSave("fin3:rec",rec);},[rec,ready]);
+  useEffect(()=>{if(ready)sSave("fin3:ann",ann);},[ann,ready]);
+  useEffect(()=>{if(ready)sSave("fin3:cfg",cfg);},[cfg,ready]);
+  useEffect(()=>{if(ready)sSave("fin3:initBal",initBal);},[initBal,ready]);
+
+  if(!ready)return<div style={{background:"#f0f4ff",color:"#1e293b",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>Caricamento…</div>;
+
+  const addTx=tx=>setTxs(p=>[{...tx,id:Date.now()},...p]);
+  const delTx=id=>setTxs(p=>p.filter(t=>t.id!==id));
+  const saveInitBal=v=>{setInitBal(v);setShowContiModal(false);};
+
+  return(
+    <div style={S.root}>
+      <div style={S.screen}>
+        {tab==="home"      &&<HomeTab txs={txs} ann={ann} cfg={cfg} initBal={initBal} onAdd={()=>setTab("add")} onEditConti={()=>setShowContiModal(true)}/>}
+        {tab==="add"       &&<AddTab onSave={tx=>{addTx(tx);setTab("home");}}/>}
+        {tab==="recurring" &&<RecurringTab rec={rec} setRec={setRec} ann={ann} setAnn={setAnn} onApply={addTx}/>}
+        {tab==="fiscale"   &&<FiscaleTab txs={txs} cfg={cfg} setCfg={setCfg}/>}
+        {tab==="report"    &&<ReportTab txs={txs} onDelete={delTx}/>}
+      </div>
+      <nav style={S.nav}>
+        {[{id:"home",icon:"⊞",label:"Home"},{id:"recurring",icon:"↺",label:"Ricorrenti"},{id:"add",icon:"+",label:"Aggiungi"},{id:"fiscale",icon:"🏛️",label:"Fiscale"},{id:"report",icon:"▦",label:"Report"}].map(it=>(
+          <button key={it.id} style={{...S.navBtn,...(tab===it.id?S.navActive:{})}} onClick={()=>setTab(it.id)}>
+            <span style={{fontSize:it.id==="add"?26:17}}>{it.icon}</span>
+            <span style={{fontSize:10,marginTop:1,fontWeight:tab===it.id?700:400}}>{it.label}</span>
+          </button>
+        ))}
+      </nav>
+      {showContiModal&&<ContiModal initBal={initBal} onSave={saveInitBal} onClose={()=>setShowContiModal(false)}/>}
+    </div>
+  );
+}
+
+function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti}){
+  const curKey=CUR_Y+"-"+String(CUR_M+1).padStart(2,"0");
+  const cur=txs.filter(t=>mKey(t.date)===curKey);
+  const ytd=txs.filter(t=>new Date(t.date).getFullYear()===CUR_Y);
+
+  // Saldi conti
+  const balFineco=contoBal(txs,initBal,"fineco");
+  const balIng=contoBal(txs,initBal,"ing");
+
+  // Mese corrente
+  const fatt_m=sumType(cur,"income_fatturato"),nonfatt_m=sumType(cur,"income_non_fatt"),income_m=fatt_m+nonfatt_m;
+  const expP_m=sumType(cur,"expense_professional"),expPers_m=sumType(cur,"expense_personal");
+  const tax_m=sumGroup(cur,"tax"),ann_m=sumType(cur,"annual");
+  const balance_m=income_m-expP_m-expPers_m-tax_m-ann_m;
+
+  // YTD fiscale
+  const fatt_ytd=sumType(ytd,"income_fatturato");
+  const aliq=cfg.newBiz?5:cfg.aliquota;
+  const imposta_est=fatt_ytd*(cfg.coeffRed/100)*(aliq/100);
+  const irpef_paid=sumType(ytd,"tax_irpef");
+  const da_pagare=Math.max(0,imposta_est-irpef_paid);
+
+  const today=new Date();
+  const soon=ann.filter(a=>{if(!a.dueDate)return false;const diff=(new Date(a.dueDate)-today)/86400000;return diff>=0&&diff<=60;});
+  const recent=[...txs].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
+
+  return(
+    <div style={S.page}>
+      <div style={S.header}>
+        <span style={S.hTitle}>💶 Finanze</span>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={S.hSub}>{MONTHS[CUR_M]} {CUR_Y}</span>
+          <button style={S.hBtnSm} onClick={onEditConti}>⚙️ Saldi</button>
+        </div>
+      </div>
+
+      {/* Conti */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        {[
+          {nome:"Fineco",emoji:"🏦",bal:balFineco,sub:"Lavoro",color:"#16a34a",bg:"linear-gradient(135deg,#16a34a,#15803d)"},
+          {nome:"ING",emoji:"🏦",bal:balIng,sub:"Personale",color:"#2563eb",bg:"linear-gradient(135deg,#2563eb,#1d4ed8)"},
+        ].map(c=>(
+          <div key={c.nome} style={{background:c.bg,borderRadius:16,padding:"14px 16px",color:"#fff"}}>
+            <div style={{fontSize:11,opacity:0.8,marginBottom:2}}>{c.emoji} {c.nome} · {c.sub}</div>
+            <div style={{fontSize:22,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(c.bal)}</div>
+            <div style={{fontSize:10,opacity:0.7,marginTop:4}}>saldo attuale</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Saldo mensile */}
+      <div style={{...S.card,background:balance_m>=0?"linear-gradient(135deg,#16a34a,#15803d)":"linear-gradient(135deg,#dc2626,#b91c1c)",marginBottom:12,color:"#fff"}}>
+        <div style={{fontSize:11,opacity:0.8,marginBottom:3,letterSpacing:"0.08em"}}>SALDO MESE · {MONTHS[CUR_M]}</div>
+        <div style={{fontSize:34,fontWeight:700,fontFamily:"Georgia,serif",marginBottom:12}}>{fmt(balance_m)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {[{l:"Entrate",v:income_m},{l:"Spese",v:expP_m+expPers_m},{l:"Tasse",v:tax_m+ann_m}].map(x=>(
+            <div key={x.l} style={{background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 10px"}}>
+              <div style={{fontSize:10,opacity:0.8}}>{x.l}</div>
+              <div style={{fontSize:14,fontWeight:700,marginTop:2}}>{fmt(x.v)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* YTD */}
+      <div style={{...S.card,marginBottom:12}}>
+        <div style={{color:"#94a3b8",fontSize:10,fontWeight:700,letterSpacing:"0.08em",marginBottom:10}}>ANNO {CUR_Y} · QUADRO RAPIDO</div>
+        <div style={{display:"flex"}}>
+          {[{l:"Fatturato YTD",v:fatt_ytd,c:"#16a34a"},{l:"Imposta stimata",v:imposta_est,c:"#d97706"},{l:"Da pagare",v:da_pagare,c:da_pagare>0?"#ea580c":"#16a34a"}].map((x,i)=>(
+            <div key={x.l} style={{flex:1,padding:"0 6px",borderLeft:i>0?"1px solid #f1f5f9":"none"}}>
+              <div style={{color:"#94a3b8",fontSize:10}}>{x.l}</div>
+              <div style={{color:x.c,fontWeight:700,fontSize:14,marginTop:3}}>{fmt(x.v)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {soon.length>0&&(
+        <div style={{...S.card,marginBottom:12,borderLeft:"4px solid #7c3aed"}}>
+          <div style={{color:"#7c3aed",fontSize:12,fontWeight:700,marginBottom:8}}>📅 Scadenze entro 60 giorni</div>
+          {soon.map(a=>{const diff=Math.ceil((new Date(a.dueDate)-today)/86400000);return(
+            <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{color:"#1e293b",fontSize:13,fontWeight:500}}>{a.description}</span>
+              <div style={{textAlign:"right"}}><div style={{color:"#7c3aed",fontWeight:700,fontSize:13}}>{fmt(a.amount)}</div><div style={{color:"#94a3b8",fontSize:11}}>tra {diff}gg</div></div>
+            </div>
+          );})}
+        </div>
+      )}
+
+      <button style={S.quickAdd} onClick={onAdd}>＋ Aggiungi movimento</button>
+      <div style={S.secTitle}>Movimenti recenti</div>
+      {recent.length===0?<div style={S.empty}>Nessuna transazione ancora.<br/>Premi + per iniziare.</div>:recent.map(tx=><TxRow key={tx.id} tx={tx}/>)}
+    </div>
+  );
+}
+
+const TYPE_GROUPS=[
+  {label:"Entrate",types:["income_fatturato","income_non_fatt"]},
+  {label:"Spese",types:["expense_professional","expense_personal"]},
+  {label:"Tasse & Contributi",types:["tax_irpef","tax_enpab","tax_bollo"]},
+  {label:"Pagamento Annuale",types:["annual"]},
+];
+
+function AddTab({onSave}){
+  const [txType,setTxType]=useState("income_fatturato");
+  const [subcat,setSubcat]=useState("visita");
+  const [amount,setAmount]=useState("");
+  const [note,setNote]=useState("");
+  const [date,setDate]=useState(TODAY);
+  const [conto,setConto]=useState("fineco");
+
+  const changeType=t=>{
+    setTxType(t);
+    setSubcat(SUBCATS[t]?.[0]?.id||"");
+    setConto(DEFAULT_CONTO[t]||"ing");
+  };
+  const def=TX_TYPES[txType];
+  const save=()=>{
+    if(!amount||isNaN(Number(amount))||Number(amount)<=0)return;
+    onSave({txType,subcat,amount:Number(amount),note,date,conto});
+    setAmount("");setNote("");setDate(TODAY);
+  };
+
+  return(
+    <div style={S.page}>
+      <div style={S.header}><span style={S.hTitle}>Nuovo movimento</span></div>
+
+      {TYPE_GROUPS.map(grp=>(
+        <div key={grp.label}>
+          <div style={S.secTitle}>{grp.label}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {grp.types.map(t=>{const d=TX_TYPES[t],active=txType===t;return(
+              <button key={t} onClick={()=>changeType(t)}
+                style={{...S.chip,...(active?{background:d.bg,borderColor:d.color,color:d.color,fontWeight:700}:{})}}>{d.icon} {d.label}</button>
+            );})}
+          </div>
+        </div>
+      ))}
+
+      <div style={{...S.amountBox,borderColor:def.color,marginTop:14}}>
+        <span style={{color:def.color,fontSize:26,fontWeight:700}}>€</span>
+        <input type="number" inputMode="decimal" placeholder="0,00" value={amount} onChange={e=>setAmount(e.target.value)} style={S.amountInput}/>
+      </div>
+
+      {/* Selezione conto */}
+      <div style={S.secTitle}>Conto</div>
+      <div style={{display:"flex",gap:8}}>
+        {[{id:"fineco",l:"🏦 Fineco",c:"#16a34a",bg:"#dcfce7"},{id:"ing",l:"🏦 ING",c:"#2563eb",bg:"#dbeafe"}].map(c=>(
+          <button key={c.id} onClick={()=>setConto(c.id)}
+            style={{...S.chip,flex:1,...(conto===c.id?{background:c.bg,borderColor:c.c,color:c.c,fontWeight:700}:{})}}>
+            {c.l}
+          </button>
+        ))}
+      </div>
+
+      {(SUBCATS[txType]||[]).length>0&&<>
+        <div style={S.secTitle}>Dettaglio</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {(SUBCATS[txType]||[]).map(sc=>(
+            <button key={sc.id} onClick={()=>setSubcat(sc.id)}
+              style={{...S.chip,...(subcat===sc.id?{background:def.bg,borderColor:def.color,color:def.color,fontWeight:700}:{})}}>{sc.l}</button>
+          ))}
+        </div>
+      </>}
+
+      <div style={S.secTitle}>Note</div>
+      <input type="text" placeholder="es. Visita Sig. Rossi, Netflix…" value={note} onChange={e=>setNote(e.target.value)} style={S.input}/>
+      <div style={S.secTitle}>Data</div>
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={S.input}/>
+      {txType==="expense_professional"&&<div style={S.infoBox}>ℹ️ In forfettario le spese professionali non sono deducibili.</div>}
+      <button style={{...S.primaryBtn,background:def.color}} onClick={save}>Salva</button>
+    </div>
+  );
+}
+
+function RecurringTab({rec,setRec,ann,setAnn,onApply}){
+  const [showR,setShowR]=useState(false);
+  const [showA,setShowA]=useState(false);
+  const [rf,setRf]=useState({txType:"expense_personal",subcat:"abbonamenti",amount:"",note:"",dayOfMonth:1,active:true,conto:"ing"});
+  const [af,setAf]=useState({txType:"annual",subcat:"ordine",amount:"",description:"",dueDate:"",active:true,conto:"ing"});
+  const addRec=()=>{if(!rf.amount||!rf.note)return;setRec(p=>[...p,{...rf,id:Date.now(),amount:Number(rf.amount)}]);setRf({txType:"expense_personal",subcat:"abbonamenti",amount:"",note:"",dayOfMonth:1,active:true,conto:"ing"});setShowR(false);};
+  const addAnn=()=>{if(!af.amount||!af.description)return;setAnn(p=>[...p,{...af,id:Date.now(),amount:Number(af.amount)}]);setAf({txType:"annual",subcat:"ordine",amount:"",description:"",dueDate:"",active:true,conto:"ing"});setShowA(false);};
+  const delRec=id=>setRec(p=>p.filter(r=>r.id!==id));
+  const delAnn=id=>setAnn(p=>p.filter(a=>a.id!==id));
+  const togRec=id=>setRec(p=>p.map(r=>r.id===id?{...r,active:!r.active}:r));
+  const totOut=rec.filter(r=>r.active&&TX_TYPES[r.txType]?.group!=="income").reduce((s,r)=>s+Number(r.amount),0);
+  const totIn=rec.filter(r=>r.active&&TX_TYPES[r.txType]?.group==="income").reduce((s,r)=>s+Number(r.amount),0);
+  const today=new Date();
+  const ContoSel=({val,onChange})=>(<div style={{display:"flex",gap:8,marginBottom:8}}>
+    {[{id:"fineco",l:"🏦 Fineco",c:"#16a34a",bg:"#dcfce7"},{id:"ing",l:"🏦 ING",c:"#2563eb",bg:"#dbeafe"}].map(c=>(
+      <button key={c.id} onClick={()=>onChange(c.id)} style={{...S.chip,flex:1,...(val===c.id?{background:c.bg,borderColor:c.c,color:c.c,fontWeight:700}:{})}}>{c.l}</button>
+    ))}
+  </div>);
+  return(
+    <div style={S.page}>
+      <div style={S.header}><span style={S.hTitle}>↺ Mensili</span><button style={S.hBtn} onClick={()=>setShowR(!showR)}>{showR?"✕":"+ Nuovo"}</button></div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <div style={{...S.miniCard,flex:1}}><div style={{color:"#94a3b8",fontSize:11}}>Uscite/mese</div><div style={{color:"#dc2626",fontSize:17,fontWeight:700,marginTop:3}}>{fmt(totOut)}</div></div>
+        <div style={{...S.miniCard,flex:1}}><div style={{color:"#94a3b8",fontSize:11}}>Entrate/mese</div><div style={{color:"#16a34a",fontSize:17,fontWeight:700,marginTop:3}}>{fmt(totIn)}</div></div>
+      </div>
+      {showR&&(
+        <div style={S.formBox}>
+          <div style={S.secTitle}>Tipo</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {["income_fatturato","income_non_fatt","expense_professional","expense_personal","tax_enpab"].map(t=>(
+              <button key={t} onClick={()=>setRf(p=>({...p,txType:t,subcat:SUBCATS[t]?.[0]?.id||"",conto:DEFAULT_CONTO[t]||"ing"}))}
+                style={{...S.chip,...(rf.txType===t?{background:TX_TYPES[t].bg,borderColor:TX_TYPES[t].color,color:TX_TYPES[t].color,fontWeight:700}:{})}}>
+                {TX_TYPES[t].icon} {TX_TYPES[t].label}
+              </button>
+            ))}
+          </div>
+          <input type="text" placeholder="Descrizione" value={rf.note} onChange={e=>setRf(p=>({...p,note:e.target.value}))} style={{...S.input,marginBottom:8}}/>
+          <input type="number" inputMode="decimal" placeholder="Importo €" value={rf.amount} onChange={e=>setRf(p=>({...p,amount:e.target.value}))} style={{...S.input,marginBottom:8}}/>
+          <div style={{color:"#64748b",fontSize:12,marginBottom:4}}>Conto</div>
+          <ContoSel val={rf.conto} onChange={v=>setRf(p=>({...p,conto:v}))}/>
+          <div style={{color:"#64748b",fontSize:12,marginBottom:4}}>Giorno del mese</div>
+          <input type="number" min="1" max="31" value={rf.dayOfMonth} onChange={e=>setRf(p=>({...p,dayOfMonth:Number(e.target.value)}))} style={{...S.input,marginBottom:8}}/>
+          <button style={S.primaryBtn} onClick={addRec}>Aggiungi</button>
+        </div>
+      )}
+      {rec.length===0?<div style={S.empty}>Nessun ricorrente mensile.</div>:rec.map(r=>{
+        const def=TX_TYPES[r.txType]||{label:r.txType,icon:"💸",color:"#64748b",bg:"#f1f5f9",group:"expense"};
+        const isIn=def.group==="income";
+        return(
+          <div key={r.id} style={{...S.txRow,opacity:r.active?1:0.4}}>
+            <div style={{...S.txIcon,background:def.bg}}>{def.icon}</div>
+            <div style={{flex:1}}>
+              <div style={{color:"#1e293b",fontSize:14,fontWeight:600}}>{r.note}</div>
+              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>Ogni {r.dayOfMonth}° · <span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 5px",fontWeight:600}}>{r.conto==="fineco"?"Fineco":"ING"}</span></div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{color:isIn?"#16a34a":"#dc2626",fontWeight:700,fontSize:14}}>{isIn?"+":"-"}{fmt(Number(r.amount))}</div>
+              <div style={{display:"flex",gap:4,marginTop:4,justifyContent:"flex-end"}}>
+                <button style={S.microBtn} onClick={()=>togRec(r.id)}>{r.active?"⏸":"▶"}</button>
+                <button style={S.microBtn} onClick={()=>onApply({txType:r.txType,subcat:r.subcat,amount:r.amount,note:r.note+" (ric.)",date:TODAY,conto:r.conto,id:Date.now()})}>✓</button>
+                <button style={{...S.microBtn,color:"#ef4444"}} onClick={()=>delRec(r.id)}>✕</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{...S.header,marginTop:20}}><span style={S.hTitle}>📅 Annuali</span><button style={S.hBtn} onClick={()=>setShowA(!showA)}>{showA?"✕":"+ Nuovo"}</button></div>
+      {showA&&(
+        <div style={S.formBox}>
+          <div style={S.secTitle}>Tipo</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {SUBCATS.annual.map(sc=>(
+              <button key={sc.id} onClick={()=>setAf(p=>({...p,subcat:sc.id}))}
+                style={{...S.chip,...(af.subcat===sc.id?{background:"#ede9fe",borderColor:"#7c3aed",color:"#7c3aed",fontWeight:700}:{})}}>{sc.l}</button>
+            ))}
+          </div>
+          <input type="text" placeholder="Descrizione" value={af.description} onChange={e=>setAf(p=>({...p,description:e.target.value}))} style={{...S.input,marginBottom:8}}/>
+          <input type="number" inputMode="decimal" placeholder="Importo €" value={af.amount} onChange={e=>setAf(p=>({...p,amount:e.target.value}))} style={{...S.input,marginBottom:8}}/>
+          <div style={{color:"#64748b",fontSize:12,marginBottom:4}}>Conto</div>
+          <ContoSel val={af.conto} onChange={v=>setAf(p=>({...p,conto:v}))}/>
+          <div style={{color:"#64748b",fontSize:12,marginBottom:4}}>Data scadenza</div>
+          <input type="date" value={af.dueDate} onChange={e=>setAf(p=>({...p,dueDate:e.target.value}))} style={{...S.input,marginBottom:8}}/>
+          <button style={{...S.primaryBtn,background:"#7c3aed"}} onClick={addAnn}>Aggiungi</button>
+        </div>
+      )}
+      {ann.length===0?<div style={S.empty}>Nessun pagamento annuale.</div>:ann.map(a=>{
+        const diff=a.dueDate?Math.ceil((new Date(a.dueDate)-today)/86400000):null;
+        const sc=SUBCATS.annual.find(s=>s.id===a.subcat);
+        const urgent=diff!==null&&diff>=0&&diff<=30;
+        return(
+          <div key={a.id} style={{...S.txRow,...(urgent?{background:"#fdf4ff",borderRadius:10,padding:"8px 6px"}:{})}}>
+            <div style={{...S.txIcon,background:"#ede9fe"}}>📅</div>
+            <div style={{flex:1}}>
+              <div style={{color:"#1e293b",fontSize:14,fontWeight:600}}>{a.description}</div>
+              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>{sc?.l}{diff!==null?(diff<0?" · scaduta":" · tra "+diff+"gg"):""}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{color:"#7c3aed",fontWeight:700,fontSize:14}}>{fmt(Number(a.amount))}</div>
+              <div style={{display:"flex",gap:4,marginTop:4,justifyContent:"flex-end"}}>
+                <button style={S.microBtn} onClick={()=>onApply({txType:"annual",subcat:a.subcat,amount:a.amount,note:a.description,date:TODAY,conto:a.conto||"ing",id:Date.now()})}>✓ Paga</button>
+                <button style={{...S.microBtn,color:"#ef4444"}} onClick={()=>delAnn(a.id)}>✕</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FiscaleTab({txs,cfg,setCfg}){
+  const ytd=txs.filter(t=>new Date(t.date).getFullYear()===CUR_Y);
+  const fatt_ytd=sumType(ytd,"income_fatturato"),nonfatt_ytd=sumType(ytd,"income_non_fatt");
+  const aliq=cfg.newBiz?5:cfg.aliquota;
+  const imponibile=fatt_ytd*(cfg.coeffRed/100);
+  const imposta_est=imponibile*(aliq/100);
+  const irpef_paid=sumType(ytd,"tax_irpef"),enpab_paid=sumType(ytd,"tax_enpab"),bollo_paid=sumType(ytd,"tax_bollo");
+  const tax_total=irpef_paid+enpab_paid+bollo_paid;
+  const da_pagare=Math.max(0,imposta_est-irpef_paid);
+  const pct=imposta_est>0?Math.min(100,Math.round(irpef_paid/imposta_est*100)):0;
+  const barData=Array.from({length:6},(_,i)=>{const d=new Date(CUR_Y,CUR_M-5+i,1);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");const m=txs.filter(t=>mKey(t.date)===k);return{name:MONTHS[d.getMonth()],Fatturato:sumType(m,"income_fatturato"),NonFatt:sumType(m,"income_non_fatt")};});
+  return(
+    <div style={S.page}>
+      <div style={S.header}><span style={S.hTitle}>🏛️ Quadro Fiscale</span></div>
+      <div style={S.infoBox}>Regime forfettario · Imposta sostitutiva {aliq}% · Coeff. redditività {cfg.coeffRed}%</div>
+      <div style={S.formBox}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:130}}>
+            <div style={{color:"#64748b",fontSize:11,marginBottom:6,fontWeight:600}}>Aliquota sostitutiva</div>
+            <div style={{display:"flex",gap:6}}>{[{v:5,l:"5% start-up"},{v:15,l:"15%"}].map(o=>(<button key={o.v} onClick={()=>setCfg(p=>({...p,aliquota:o.v,newBiz:o.v===5}))} style={{...S.chip,flex:1,...(aliq===o.v?{background:"#fef3c7",borderColor:"#d97706",color:"#d97706",fontWeight:700}:{})}}>{o.l}</button>))}</div>
+          </div>
+          <div style={{flex:1,minWidth:130}}>
+            <div style={{color:"#64748b",fontSize:11,marginBottom:6,fontWeight:600}}>Coeff. redditività</div>
+            <div style={{display:"flex",gap:6}}>{[{v:67,l:"67%"},{v:78,l:"78%"}].map(o=>(<button key={o.v} onClick={()=>setCfg(p=>({...p,coeffRed:o.v}))} style={{...S.chip,flex:1,...(cfg.coeffRed===o.v?{background:"#fef3c7",borderColor:"#d97706",color:"#d97706",fontWeight:700}:{})}}>{o.l}</button>))}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        {[{l:"Fatturato YTD",v:fatt_ytd,c:"#16a34a"},{l:"Non fatturato YTD",v:nonfatt_ytd,c:"#15803d"},{l:`Imponibile (${cfg.coeffRed}%)`,v:imponibile,c:"#d97706"},{l:`Imposta est. (${aliq}%)`,v:imposta_est,c:"#ea580c"}].map(x=>(<div key={x.l} style={S.miniCard}><div style={{color:"#94a3b8",fontSize:10,marginBottom:4,fontWeight:600}}>{x.l}</div><div style={{color:x.c,fontWeight:700,fontSize:16}}>{fmt(x.v)}</div></div>))}
+      </div>
+      <div style={{...S.card,marginBottom:12}}>
+        <div style={{color:"#64748b",fontSize:11,fontWeight:700,letterSpacing:"0.08em",marginBottom:10}}>AVANZAMENTO IMPOSTA SOSTITUTIVA</div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{color:"#64748b",fontSize:13}}>Pagato: <strong style={{color:"#1e293b"}}>{fmt(irpef_paid)}</strong></span><span style={{color:"#64748b",fontSize:13}}>Stimato: <strong style={{color:"#d97706"}}>{fmt(imposta_est)}</strong></span></div>
+        <div style={{background:"#f1f5f9",borderRadius:99,height:12,overflow:"hidden"}}><div style={{width:pct+"%",background:"linear-gradient(90deg,#f59e0b,#ea580c)",height:"100%",borderRadius:99,transition:"width 0.4s"}}/></div>
+        <div style={{color:da_pagare>0?"#ea580c":"#16a34a",fontWeight:700,fontSize:18,marginTop:10,textAlign:"right"}}>{da_pagare>0?"Da pagare: "+fmt(da_pagare):"✓ Tutto coperto"}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <div style={S.miniCard}><div style={{color:"#94a3b8",fontSize:10,marginBottom:4,fontWeight:600}}>ENPAB pagato YTD</div><div style={{color:"#ea580c",fontWeight:700,fontSize:16}}>{fmt(enpab_paid)}</div></div>
+        <div style={S.miniCard}><div style={{color:"#94a3b8",fontSize:10,marginBottom:4,fontWeight:600}}>Bollo virtuale YTD</div><div style={{color:"#c2410c",fontWeight:700,fontSize:16}}>{fmt(bollo_paid)}</div></div>
+      </div>
+      <div style={{...S.card,marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{color:"#64748b",fontSize:11,fontWeight:600}}>TOTALE TASSE/CONTRIBUTI YTD</div><div style={{color:"#d97706",fontWeight:700,fontSize:24,marginTop:4}}>{fmt(tax_total)}</div></div><div style={{textAlign:"right",background:"#fef3c7",borderRadius:12,padding:"10px 14px"}}><div style={{color:"#92400e",fontSize:11,fontWeight:600}}>SUL FATTURATO</div><div style={{color:"#d97706",fontWeight:700,fontSize:22,marginTop:2}}>{fatt_ytd>0?Math.round(tax_total/fatt_ytd*100):0}%</div></div></div></div>
+      <div style={{...S.card,padding:14}}><div style={{color:"#64748b",fontSize:11,fontWeight:600,marginBottom:10}}>FATTURATO ULTIMI 6 MESI</div><BarSVG data={barData}/></div>
+    </div>
+  );
+}
+
+function ReportTab({txs,onDelete}){
+  const [vm,setVm]=useState(CUR_M);const [vy,setVy]=useState(CUR_Y);const [filt,setFilt]=useState("all");
+  const key=vy+"-"+String(vm+1).padStart(2,"0");
+  const cur=txs.filter(t=>mKey(t.date)===key);
+  const disp=filt==="all"?cur:filt==="fineco"||filt==="ing"?cur.filter(t=>t.conto===filt):cur.filter(t=>TX_TYPES[t.txType]?.group===filt);
+  const income_m=sumGroup(cur,"income"),expense_m=sumGroup(cur,"expense"),tax_m=sumGroup(cur,"tax"),annual_m=sumGroup(cur,"annual");
+  const prevM=()=>{if(vm===0){setVm(11);setVy(y=>y-1);}else setVm(m=>m-1);};
+  const nextM=()=>{if(vm===11){setVm(0);setVy(y=>y+1);}else setVm(m=>m+1);};
+  return(
+    <div style={S.page}>
+      <div style={S.header}><span style={S.hTitle}>▦ Report</span></div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <button style={S.navArrow} onClick={prevM}>‹</button>
+        <span style={{color:"#1e293b",fontWeight:700,fontSize:16}}>{MONTHS[vm]} {vy}</span>
+        <button style={S.navArrow} onClick={nextM}>›</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+        {[{l:"Entrate",v:income_m,c:"#16a34a"},{l:"Uscite",v:expense_m,c:"#dc2626"},{l:"Tasse",v:tax_m,c:"#d97706"},{l:"Annuali",v:annual_m,c:"#7c3aed"}].map(x=>(<div key={x.l} style={S.miniCard}><div style={{color:"#94a3b8",fontSize:10,fontWeight:600,marginBottom:4}}>{x.l}</div><div style={{color:x.c,fontWeight:700,fontSize:16}}>{fmt(x.v)}</div></div>))}
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {[{id:"all",l:"Tutti"},{id:"fineco",l:"🏦 Fineco"},{id:"ing",l:"🏦 ING"},{id:"income",l:"Entrate"},{id:"expense",l:"Spese"},{id:"tax",l:"Tasse"}].map(f=>(
+          <button key={f.id} onClick={()=>setFilt(f.id)} style={{...S.chip,...(filt===f.id?{background:"#dbeafe",borderColor:"#2563eb",color:"#2563eb",fontWeight:700}:{})}}>{f.l}</button>
+        ))}
+      </div>
+      {disp.length===0?<div style={S.empty}>Nessuna transazione.</div>:[...disp].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete}/>)}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
