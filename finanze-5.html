@@ -158,6 +158,10 @@ function ContiModal({initBal,onSave,onClose}){
             <input type="number" inputMode="decimal" placeholder="0,00" value={fineco} onChange={e=>setFineco(e.target.value)}
               style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
           </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",borderRadius:13,padding:"10px 16px",marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+     <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>Totale patrimonio</span>
+     <span style={{color:"#1e293b",fontSize:18,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(balFineco+balIng)}</span>
+   </div>
         </div>
         <div style={{marginBottom:20}}>
           <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>🏦 ING (personale)</div>
