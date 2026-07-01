@@ -195,6 +195,39 @@ function App(){
   useEffect(()=>{if(ready)sSave("fin3:cfg",cfg);},[cfg,ready]);
   useEffect(()=>{if(ready)sSave("fin3:initBal",initBal);},[initBal,ready]);
 
+  // Applicazione automatica delle ricorrenti mensili
+  const recChecked=React.useRef(false);
+  useEffect(()=>{
+    if(!ready||recChecked.current)return;
+    recChecked.current=true;
+    const today=new Date();
+    const curKey=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0");
+    const nextMonthKey=k=>{const[y,m]=k.split("-").map(Number);let ny=y,nm=m+1;if(nm>12){nm=1;ny++;}return ny+"-"+String(nm).padStart(2,"0");};
+    let newTxs=[];
+    let changed=false;
+    const updatedRec=rec.map(item=>{
+      if(!item.active)return item;
+      let cursor=item.lastApplied?nextMonthKey(item.lastApplied):curKey;
+      let lastApplied=item.lastApplied||null;
+      while(cursor<=curKey){
+        const[y,m]=cursor.split("-").map(Number);
+        const daysInMonth=new Date(y,m,0).getDate();
+        const day=Math.min(item.dayOfMonth||1,daysInMonth);
+        const isCurMonth=cursor===curKey;
+        const dayPassed=!isCurMonth||today.getDate()>=day;
+        if(!dayPassed)break;
+        const dateStr=y+"-"+String(m).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+        newTxs.push({txType:item.txType,subcat:item.subcat,amount:Number(item.amount),note:(item.note||"")+" (auto)",date:dateStr,conto:item.conto,id:Date.now()+Math.random()});
+        lastApplied=cursor;
+        cursor=nextMonthKey(cursor);
+      }
+      if(lastApplied!==item.lastApplied){changed=true;return{...item,lastApplied};}
+      return item;
+    });
+    if(newTxs.length>0)setTxs(p=>[...newTxs.reverse(),...p]);
+    if(changed)setRec(updatedRec);
+  },[ready]);
+
   if(!ready)return<div style={{background:"#f0f4ff",color:"#1e293b",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>Caricamento…</div>;
 
   const addTx=tx=>setTxs(p=>[{...tx,id:Date.now()},...p]);
@@ -409,7 +442,7 @@ function RecurringTab({rec,setRec,ann,setAnn,onApply}){
   const [showA,setShowA]=useState(false);
   const [rf,setRf]=useState({txType:"expense_personal",subcat:"abbonamenti",amount:"",note:"",dayOfMonth:1,active:true,conto:"ing"});
   const [af,setAf]=useState({txType:"annual",subcat:"ordine",amount:"",description:"",dueDate:"",active:true,conto:"ing"});
-  const addRec=()=>{if(!rf.amount||!rf.note)return;setRec(p=>[...p,{...rf,id:Date.now(),amount:Number(rf.amount)}]);setRf({txType:"expense_personal",subcat:"abbonamenti",amount:"",note:"",dayOfMonth:1,active:true,conto:"ing"});setShowR(false);};
+  const addRec=()=>{if(!rf.amount||!rf.note)return;setRec(p=>[...p,{...rf,id:Date.now(),amount:Number(rf.amount),lastApplied:null}]);setRf({txType:"expense_personal",subcat:"abbonamenti",amount:"",note:"",dayOfMonth:1,active:true,conto:"ing"});setShowR(false);};
   const addAnn=()=>{if(!af.amount||!af.description)return;setAnn(p=>[...p,{...af,id:Date.now(),amount:Number(af.amount)}]);setAf({txType:"annual",subcat:"ordine",amount:"",description:"",dueDate:"",active:true,conto:"ing"});setShowA(false);};
   const delRec=id=>setRec(p=>p.filter(r=>r.id!==id));
   const delAnn=id=>setAnn(p=>p.filter(a=>a.id!==id));
@@ -457,7 +490,7 @@ function RecurringTab({rec,setRec,ann,setAnn,onApply}){
             <div style={{...S.txIcon,background:def.bg}}>{def.icon}</div>
             <div style={{flex:1}}>
               <div style={{color:"#1e293b",fontSize:14,fontWeight:600}}>{r.note}</div>
-              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>Ogni {r.dayOfMonth}° · <span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 5px",fontWeight:600}}>{r.conto==="fineco"?"Fineco":"ING"}</span></div>
+              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>Ogni {r.dayOfMonth}° · <span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 5px",fontWeight:600}}>{r.conto==="fineco"?"Fineco":"ING"}</span>{r.lastApplied&&<span style={{background:"#dcfce7",color:"#16a34a",borderRadius:6,padding:"1px 5px",fontWeight:600,marginLeft:4}}>✓ {r.lastApplied}</span>}</div>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{color:isIn?"#16a34a":"#dc2626",fontWeight:700,fontSize:14}}>{isIn?"+":"-"}{fmt(Number(r.amount))}</div>
