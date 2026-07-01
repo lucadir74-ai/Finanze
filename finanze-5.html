@@ -67,7 +67,8 @@ function contoBal(txs,initBal,conto){
   const rel=txs.filter(t=>t.conto===conto);
   const inc=rel.filter(t=>TX_TYPES[t.txType]?.group==="income").reduce((s,t)=>s+Number(t.amount),0);
   const out=rel.filter(t=>TX_TYPES[t.txType]?.group!=="income").reduce((s,t)=>s+Number(t.amount),0);
-   return (initBal[conto]||0)+inc-out;}
+  return (initBal[conto]||0)+inc-out;
+}
 
 function BarSVG({data,h=150}){
   const maxV=Math.max(...data.map(d=>(d.Fatturato||0)+(d.NonFatt||0)),1);
@@ -158,10 +159,6 @@ function ContiModal({initBal,onSave,onClose}){
             <input type="number" inputMode="decimal" placeholder="0,00" value={fineco} onChange={e=>setFineco(e.target.value)}
               style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",borderRadius:13,padding:"10px 16px",marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-     <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>Totale patrimonio</span>
-     <span style={{color:"#1e293b",fontSize:18,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(balFineco+balIng)}</span>
-   </div>
         </div>
         <div style={{marginBottom:20}}>
           <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>🏦 ING (personale)</div>
@@ -207,7 +204,7 @@ function App(){
   return(
     <div style={S.root}>
       <div style={S.screen}>
-        {tab==="home"      &&<HomeTab txs={txs} ann={ann} cfg={cfg} initBal={initBal} onAdd={()=>setTab("add")} onEditConti={()=>setShowContiModal(true)}/>}
+        {tab==="home"      &&<HomeTab txs={txs} ann={ann} cfg={cfg} initBal={initBal} onAdd={()=>setTab("add")} onEditConti={()=>setShowContiModal(true)} onDelete={delTx}/>}
         {tab==="add"       &&<AddTab onSave={tx=>{addTx(tx);setTab("home");}}/>}
         {tab==="recurring" &&<RecurringTab rec={rec} setRec={setRec} ann={ann} setAnn={setAnn} onApply={addTx}/>}
         {tab==="fiscale"   &&<FiscaleTab txs={txs} cfg={cfg} setCfg={setCfg}/>}
@@ -226,7 +223,7 @@ function App(){
   );
 }
 
-function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti}){
+function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
   const curKey=CUR_Y+"-"+String(CUR_M+1).padStart(2,"0");
   const cur=txs.filter(t=>mKey(t.date)===curKey);
   const ytd=txs.filter(t=>new Date(t.date).getFullYear()===CUR_Y);
@@ -263,7 +260,7 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti}){
       </div>
 
       {/* Conti */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         {[
           {nome:"Fineco",emoji:"🏦",bal:balFineco,sub:"Lavoro",color:"#16a34a",bg:"linear-gradient(135deg,#16a34a,#15803d)"},
           {nome:"ING",emoji:"🏦",bal:balIng,sub:"Personale",color:"#2563eb",bg:"linear-gradient(135deg,#2563eb,#1d4ed8)"},
@@ -274,6 +271,12 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti}){
             <div style={{fontSize:10,opacity:0.7,marginTop:4}}>saldo attuale</div>
           </div>
         ))}
+      </div>
+
+      {/* Totale patrimonio */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",borderRadius:13,padding:"10px 16px",marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+        <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>Totale patrimonio</span>
+        <span style={{color:"#1e293b",fontSize:18,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(balFineco+balIng)}</span>
       </div>
 
       {/* Saldo mensile */}
@@ -317,7 +320,7 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti}){
 
       <button style={S.quickAdd} onClick={onAdd}>＋ Aggiungi movimento</button>
       <div style={S.secTitle}>Movimenti recenti</div>
-      {recent.length===0?<div style={S.empty}>Nessuna transazione ancora.<br/>Premi + per iniziare.</div>:recent.map(tx=><TxRow key={tx.id} tx={tx}/>)}
+      {recent.length===0?<div style={S.empty}>Nessuna transazione ancora.<br/>Premi + per iniziare.</div>:recent.map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete}/>)}
     </div>
   );
 }
