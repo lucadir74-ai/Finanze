@@ -67,8 +67,7 @@ function contoBal(txs,initBal,conto){
   const rel=txs.filter(t=>t.conto===conto);
   const inc=rel.filter(t=>TX_TYPES[t.txType]?.group==="income").reduce((s,t)=>s+Number(t.amount),0);
   const out=rel.filter(t=>TX_TYPES[t.txType]?.group!=="income").reduce((s,t)=>s+Number(t.amount),0);
-  return (initBal||0)+inc-out;
-}
+   return (initBal[conto]||0)+inc-out;}
 
 function BarSVG({data,h=150}){
   const maxV=Math.max(...data.map(d=>(d.Fatturato||0)+(d.NonFatt||0)),1);
