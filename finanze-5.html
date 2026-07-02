@@ -36,10 +36,17 @@ const TX_TYPES={
 
 // Default conto per tipo transazione
 const DEFAULT_CONTO={
-  income_fatturato:"fineco", income_non_fatt:"fineco",
+  income_fatturato:"fineco", income_non_fatt:"contanti",
   expense_professional:"ing", expense_personal:"ing",
   tax_irpef:"ing", tax_enpab:"ing", tax_bollo:"fineco", annual:"ing",
 };
+
+// Elenco conti disponibili, usato in tutti i selettori
+const CONTI=[
+  {id:"fineco",l:"🏦 Fineco",c:"#16a34a",bg:"#dcfce7"},
+  {id:"ing",l:"🏦 ING",c:"#2563eb",bg:"#dbeafe"},
+  {id:"contanti",l:"💶 Contanti",c:"#d97706",bg:"#fef3c7"},
+];
 
 const SUBCATS={
   income_fatturato:    [{id:"visita",l:"Visita privata"},{id:"pacchetto",l:"Pacchetto"},{id:"corso",l:"Corso/Formazione"},{id:"consulenza_az",l:"Consulenza aziendale"},{id:"altro",l:"Altro"}],
@@ -127,7 +134,7 @@ function TxRow({tx,onDelete}){
   const sub=(SUBCATS[tx.txType]||[]).find(s=>s.id===tx.subcat);
   const isIn=def.group==="income";
   const col=isIn?"#16a34a":def.group==="tax"?"#d97706":def.group==="annual"?"#7c3aed":"#dc2626";
-  const contoLabel=tx.conto==="fineco"?"Fineco":tx.conto==="ing"?"ING":"";
+  const contoLabel=CONTI.find(c=>c.id===tx.conto)?.l.replace(/^[^\s]+\s/,"")||"";
   return(
     <div style={S.txRow}>
       <div style={{...S.txIcon,background:def.bg}}><span style={{fontSize:18}}>{def.icon}</span></div>
@@ -147,6 +154,7 @@ function TxRow({tx,onDelete}){
 function ContiModal({initBal,onSave,onClose}){
   const [fineco,setFineco]=useState(String(initBal.fineco||""));
   const [ing,setIng]=useState(String(initBal.ing||""));
+  const [contanti,setContanti]=useState(String(initBal.contanti||""));
   return(
     <div style={S.overlay} onClick={onClose}>
       <div style={S.overlayBox} onClick={e=>e.stopPropagation()}>
@@ -160,7 +168,7 @@ function ContiModal({initBal,onSave,onClose}){
               style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
           </div>
         </div>
-        <div style={{marginBottom:20}}>
+        <div style={{marginBottom:12}}>
           <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>🏦 ING (personale)</div>
           <div style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:11,padding:"11px 14px",border:"1.5px solid #e2e8f0"}}>
             <span style={{color:"#2563eb",fontWeight:700}}>€</span>
@@ -168,7 +176,15 @@ function ContiModal({initBal,onSave,onClose}){
               style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
           </div>
         </div>
-        <button style={S.primaryBtn} onClick={()=>onSave({fineco:Number(fineco)||0,ing:Number(ing)||0})}>Salva saldi</button>
+        <div style={{marginBottom:20}}>
+          <div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:6}}>💶 Contanti</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:11,padding:"11px 14px",border:"1.5px solid #e2e8f0"}}>
+            <span style={{color:"#d97706",fontWeight:700}}>€</span>
+            <input type="number" inputMode="decimal" placeholder="0,00" value={contanti} onChange={e=>setContanti(e.target.value)}
+              style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:20,fontWeight:700,color:"#1e293b"}}/>
+          </div>
+        </div>
+        <button style={S.primaryBtn} onClick={()=>onSave({fineco:Number(fineco)||0,ing:Number(ing)||0,contanti:Number(contanti)||0})}>Salva saldi</button>
       </div>
     </div>
   );
@@ -180,7 +196,7 @@ function App(){
   const [rec,setRec]=useState([]);
   const [ann,setAnn]=useState([]);
   const [cfg,setCfg]=useState({aliquota:15,coeffRed:78,newBiz:false});
-  const [initBal,setInitBal]=useState({fineco:0,ing:0});
+  const [initBal,setInitBal]=useState({fineco:0,ing:0,contanti:0});
   const [showContiModal,setShowContiModal]=useState(false);
   const [ready,setReady]=useState(false);
 
@@ -264,6 +280,7 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
   // Saldi conti
   const balFineco=contoBal(txs,initBal,"fineco");
   const balIng=contoBal(txs,initBal,"ing");
+  const balContanti=contoBal(txs,initBal,"contanti");
 
   // Mese corrente
   const fatt_m=sumType(cur,"income_fatturato"),nonfatt_m=sumType(cur,"income_non_fatt"),income_m=fatt_m+nonfatt_m;
@@ -293,15 +310,16 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
       </div>
 
       {/* Conti */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
         {[
           {nome:"Fineco",emoji:"🏦",bal:balFineco,sub:"Lavoro",color:"#16a34a",bg:"linear-gradient(135deg,#16a34a,#15803d)"},
           {nome:"ING",emoji:"🏦",bal:balIng,sub:"Personale",color:"#2563eb",bg:"linear-gradient(135deg,#2563eb,#1d4ed8)"},
+          {nome:"Contanti",emoji:"💶",bal:balContanti,sub:"Cassa",color:"#d97706",bg:"linear-gradient(135deg,#d97706,#b45309)"},
         ].map(c=>(
-          <div key={c.nome} style={{background:c.bg,borderRadius:16,padding:"14px 16px",color:"#fff"}}>
-            <div style={{fontSize:11,opacity:0.8,marginBottom:2}}>{c.emoji} {c.nome} · {c.sub}</div>
-            <div style={{fontSize:22,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(c.bal)}</div>
-            <div style={{fontSize:10,opacity:0.7,marginTop:4}}>saldo attuale</div>
+          <div key={c.nome} style={{background:c.bg,borderRadius:16,padding:"12px 12px",color:"#fff"}}>
+            <div style={{fontSize:10,opacity:0.8,marginBottom:2}}>{c.emoji} {c.nome}</div>
+            <div style={{fontSize:16,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(c.bal)}</div>
+            <div style={{fontSize:9,opacity:0.7,marginTop:3}}>{c.sub}</div>
           </div>
         ))}
       </div>
@@ -309,7 +327,7 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
       {/* Totale patrimonio */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",borderRadius:13,padding:"10px 16px",marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
         <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>Totale patrimonio</span>
-        <span style={{color:"#1e293b",fontSize:18,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(balFineco+balIng)}</span>
+        <span style={{color:"#1e293b",fontSize:18,fontWeight:700,fontFamily:"Georgia,serif"}}>{fmt(balFineco+balIng+balContanti)}</span>
       </div>
 
       {/* Saldo mensile */}
@@ -409,7 +427,7 @@ function AddTab({onSave}){
       {/* Selezione conto */}
       <div style={S.secTitle}>Conto</div>
       <div style={{display:"flex",gap:8}}>
-        {[{id:"fineco",l:"🏦 Fineco",c:"#16a34a",bg:"#dcfce7"},{id:"ing",l:"🏦 ING",c:"#2563eb",bg:"#dbeafe"}].map(c=>(
+        {CONTI.map(c=>(
           <button key={c.id} onClick={()=>setConto(c.id)}
             style={{...S.chip,flex:1,...(conto===c.id?{background:c.bg,borderColor:c.c,color:c.c,fontWeight:700}:{})}}>
             {c.l}
@@ -451,7 +469,7 @@ function RecurringTab({rec,setRec,ann,setAnn,onApply}){
   const totIn=rec.filter(r=>r.active&&TX_TYPES[r.txType]?.group==="income").reduce((s,r)=>s+Number(r.amount),0);
   const today=new Date();
   const ContoSel=({val,onChange})=>(<div style={{display:"flex",gap:8,marginBottom:8}}>
-    {[{id:"fineco",l:"🏦 Fineco",c:"#16a34a",bg:"#dcfce7"},{id:"ing",l:"🏦 ING",c:"#2563eb",bg:"#dbeafe"}].map(c=>(
+    {CONTI.map(c=>(
       <button key={c.id} onClick={()=>onChange(c.id)} style={{...S.chip,flex:1,...(val===c.id?{background:c.bg,borderColor:c.c,color:c.c,fontWeight:700}:{})}}>{c.l}</button>
     ))}
   </div>);
@@ -490,7 +508,7 @@ function RecurringTab({rec,setRec,ann,setAnn,onApply}){
             <div style={{...S.txIcon,background:def.bg}}>{def.icon}</div>
             <div style={{flex:1}}>
               <div style={{color:"#1e293b",fontSize:14,fontWeight:600}}>{r.note}</div>
-              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>Ogni {r.dayOfMonth}° · <span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 5px",fontWeight:600}}>{r.conto==="fineco"?"Fineco":"ING"}</span>{r.lastApplied&&<span style={{background:"#dcfce7",color:"#16a34a",borderRadius:6,padding:"1px 5px",fontWeight:600,marginLeft:4}}>✓ {r.lastApplied}</span>}</div>
+              <div style={{color:"#94a3b8",fontSize:11,marginTop:1}}>Ogni {r.dayOfMonth}° · <span style={{background:"#f1f5f9",borderRadius:6,padding:"1px 5px",fontWeight:600}}>{CONTI.find(c=>c.id===r.conto)?.l.replace(/^[^\s]+\s/,"")||""}</span>{r.lastApplied&&<span style={{background:"#dcfce7",color:"#16a34a",borderRadius:6,padding:"1px 5px",fontWeight:600,marginLeft:4}}>✓ {r.lastApplied}</span>}</div>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{color:isIn?"#16a34a":"#dc2626",fontWeight:700,fontSize:14}}>{isIn?"+":"-"}{fmt(Number(r.amount))}</div>
@@ -597,7 +615,7 @@ function ReportTab({txs,onDelete}){
   const [vm,setVm]=useState(CUR_M);const [vy,setVy]=useState(CUR_Y);const [filt,setFilt]=useState("all");
   const key=vy+"-"+String(vm+1).padStart(2,"0");
   const cur=txs.filter(t=>mKey(t.date)===key);
-  const disp=filt==="all"?cur:filt==="fineco"||filt==="ing"?cur.filter(t=>t.conto===filt):cur.filter(t=>TX_TYPES[t.txType]?.group===filt);
+  const disp=filt==="all"?cur:filt==="fineco"||filt==="ing"||filt==="contanti"?cur.filter(t=>t.conto===filt):cur.filter(t=>TX_TYPES[t.txType]?.group===filt);
   const income_m=sumGroup(cur,"income"),expense_m=sumGroup(cur,"expense"),tax_m=sumGroup(cur,"tax"),annual_m=sumGroup(cur,"annual");
   const prevM=()=>{if(vm===0){setVm(11);setVy(y=>y-1);}else setVm(m=>m-1);};
   const nextM=()=>{if(vm===11){setVm(0);setVy(y=>y+1);}else setVm(m=>m+1);};
@@ -613,7 +631,7 @@ function ReportTab({txs,onDelete}){
         {[{l:"Entrate",v:income_m,c:"#16a34a"},{l:"Uscite",v:expense_m,c:"#dc2626"},{l:"Tasse",v:tax_m,c:"#d97706"},{l:"Annuali",v:annual_m,c:"#7c3aed"}].map(x=>(<div key={x.l} style={S.miniCard}><div style={{color:"#94a3b8",fontSize:10,fontWeight:600,marginBottom:4}}>{x.l}</div><div style={{color:x.c,fontWeight:700,fontSize:16}}>{fmt(x.v)}</div></div>))}
       </div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-        {[{id:"all",l:"Tutti"},{id:"fineco",l:"🏦 Fineco"},{id:"ing",l:"🏦 ING"},{id:"income",l:"Entrate"},{id:"expense",l:"Spese"},{id:"tax",l:"Tasse"}].map(f=>(
+        {[{id:"all",l:"Tutti"},{id:"fineco",l:"🏦 Fineco"},{id:"ing",l:"🏦 ING"},{id:"contanti",l:"💶 Contanti"},{id:"income",l:"Entrate"},{id:"expense",l:"Spese"},{id:"tax",l:"Tasse"}].map(f=>(
           <button key={f.id} onClick={()=>setFilt(f.id)} style={{...S.chip,...(filt===f.id?{background:"#dbeafe",borderColor:"#2563eb",color:"#2563eb",fontWeight:700}:{})}}>{f.l}</button>
         ))}
       </div>
