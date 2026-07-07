@@ -129,14 +129,14 @@ const S={
   overlayBox:{background:"#fff",borderRadius:"20px 20px 0 0",padding:24,width:"100%",boxShadow:"0 -4px 20px rgba(0,0,0,0.15)"},
 };
 
-function TxRow({tx,onDelete}){
+function TxRow({tx,onDelete,onEdit}){
   const def=TX_TYPES[tx.txType]||{label:tx.txType,icon:"💸",color:"#64748b",bg:"#f1f5f9",group:"expense"};
   const sub=(SUBCATS[tx.txType]||[]).find(s=>s.id===tx.subcat);
   const isIn=def.group==="income";
   const col=isIn?"#16a34a":def.group==="tax"?"#d97706":def.group==="annual"?"#7c3aed":"#dc2626";
   const contoLabel=CONTI.find(c=>c.id===tx.conto)?.l.replace(/^[^\s]+\s/,"")||"";
   return(
-    <div style={S.txRow}>
+    <div style={{...S.txRow,cursor:onEdit?"pointer":"default"}} onClick={()=>onEdit&&onEdit(tx)}>
       <div style={{...S.txIcon,background:def.bg}}><span style={{fontSize:18}}>{def.icon}</span></div>
       <div style={{flex:1,minWidth:0}}>
         <div style={{color:"#1e293b",fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.note||sub?.l||def.label}</div>
@@ -144,7 +144,60 @@ function TxRow({tx,onDelete}){
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
         <div style={{color:col,fontWeight:700,fontSize:15}}>{isIn?"+":"-"}{fmt(Number(tx.amount))}</div>
-        {onDelete&&<button style={{...S.microBtn,marginTop:3,color:"#ef4444"}} onClick={()=>onDelete(tx.id)}>✕</button>}
+        {onDelete&&<button style={{...S.microBtn,marginTop:3,color:"#ef4444"}} onClick={e=>{e.stopPropagation();onDelete(tx.id);}}>✕</button>}
+      </div>
+    </div>
+  );
+}
+
+// Modal modifica movimento esistente
+function EditTxModal({tx,onSave,onDelete,onClose}){
+  const [txType,setTxType]=useState(tx.txType);
+  const [subcat,setSubcat]=useState(tx.subcat||"");
+  const [amount,setAmount]=useState(String(tx.amount));
+  const [note,setNote]=useState(tx.note||"");
+  const [date,setDate]=useState(tx.date);
+  const [conto,setConto]=useState(tx.conto);
+  const def=TX_TYPES[txType]||TX_TYPES.expense_personal;
+  const changeType=t=>{setTxType(t);setSubcat(SUBCATS[t]?.[0]?.id||"");};
+  const save=()=>{
+    if(!amount||isNaN(Number(amount))||Number(amount)<=0)return;
+    onSave({...tx,txType,subcat,amount:Number(amount),note,date,conto});
+  };
+  return(
+    <div style={S.overlay} onClick={onClose}>
+      <div style={{...S.overlayBox,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:17,fontWeight:700,color:"#1e293b",marginBottom:12}}>✏️ Modifica movimento</div>
+        <div style={S.secTitle}>Tipo</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {Object.keys(TX_TYPES).map(t=>{const d=TX_TYPES[t],active=txType===t;return(
+            <button key={t} onClick={()=>changeType(t)} style={{...S.chip,...(active?{background:d.bg,borderColor:d.color,color:d.color,fontWeight:700}:{})}}>{d.icon} {d.label}</button>
+          );})}
+        </div>
+        <div style={{...S.amountBox,borderColor:def.color,marginBottom:12}}>
+          <span style={{color:def.color,fontSize:26,fontWeight:700}}>€</span>
+          <input type="number" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} style={S.amountInput}/>
+        </div>
+        <div style={S.secTitle}>Conto</div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          {CONTI.map(c=>(
+            <button key={c.id} onClick={()=>setConto(c.id)} style={{...S.chip,flex:1,...(conto===c.id?{background:c.bg,borderColor:c.c,color:c.c,fontWeight:700}:{})}}>{c.l}</button>
+          ))}
+        </div>
+        {(SUBCATS[txType]||[]).length>0&&<>
+          <div style={S.secTitle}>Dettaglio</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {(SUBCATS[txType]||[]).map(sc=>(
+              <button key={sc.id} onClick={()=>setSubcat(sc.id)} style={{...S.chip,...(subcat===sc.id?{background:def.bg,borderColor:def.color,color:def.color,fontWeight:700}:{})}}>{sc.l}</button>
+            ))}
+          </div>
+        </>}
+        <div style={S.secTitle}>Note</div>
+        <input type="text" value={note} onChange={e=>setNote(e.target.value)} style={{...S.input,marginBottom:10}}/>
+        <div style={S.secTitle}>Data</div>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...S.input,marginBottom:10}}/>
+        <button style={{...S.primaryBtn,background:def.color}} onClick={save}>Salva modifiche</button>
+        <button style={{...S.primaryBtn,background:"#ef4444",marginTop:8}} onClick={()=>onDelete(tx.id)}>Elimina movimento</button>
       </div>
     </div>
   );
@@ -198,6 +251,7 @@ function App(){
   const [cfg,setCfg]=useState({aliquota:15,coeffRed:78,newBiz:false});
   const [initBal,setInitBal]=useState({fineco:0,ing:0,contanti:0});
   const [showContiModal,setShowContiModal]=useState(false);
+  const [editTx,setEditTx]=useState(null);
   const [ready,setReady]=useState(false);
 
   useEffect(()=>{
@@ -248,16 +302,17 @@ function App(){
 
   const addTx=tx=>setTxs(p=>[{...tx,id:Date.now()},...p]);
   const delTx=id=>setTxs(p=>p.filter(t=>t.id!==id));
+  const updateTx=data=>setTxs(p=>p.map(t=>t.id===data.id?data:t));
   const saveInitBal=v=>{setInitBal(v);setShowContiModal(false);};
 
   return(
     <div style={S.root}>
       <div style={S.screen}>
-        {tab==="home"      &&<HomeTab txs={txs} ann={ann} cfg={cfg} initBal={initBal} onAdd={()=>setTab("add")} onEditConti={()=>setShowContiModal(true)} onDelete={delTx}/>}
+        {tab==="home"      &&<HomeTab txs={txs} ann={ann} cfg={cfg} initBal={initBal} onAdd={()=>setTab("add")} onEditConti={()=>setShowContiModal(true)} onDelete={delTx} onEdit={setEditTx}/>}
         {tab==="add"       &&<AddTab onSave={tx=>{addTx(tx);setTab("home");}}/>}
         {tab==="recurring" &&<RecurringTab rec={rec} setRec={setRec} ann={ann} setAnn={setAnn} onApply={addTx}/>}
         {tab==="fiscale"   &&<FiscaleTab txs={txs} cfg={cfg} setCfg={setCfg}/>}
-        {tab==="report"    &&<ReportTab txs={txs} onDelete={delTx}/>}
+        {tab==="report"    &&<ReportTab txs={txs} onDelete={delTx} onEdit={setEditTx}/>}
       </div>
       <nav style={S.nav}>
         {[{id:"home",icon:"⊞",label:"Home"},{id:"recurring",icon:"↺",label:"Ricorrenti"},{id:"add",icon:"+",label:"Aggiungi"},{id:"fiscale",icon:"🏛️",label:"Fiscale"},{id:"report",icon:"▦",label:"Report"}].map(it=>(
@@ -268,11 +323,12 @@ function App(){
         ))}
       </nav>
       {showContiModal&&<ContiModal initBal={initBal} onSave={saveInitBal} onClose={()=>setShowContiModal(false)}/>}
+      {editTx&&<EditTxModal tx={editTx} onSave={data=>{updateTx(data);setEditTx(null);}} onDelete={id=>{delTx(id);setEditTx(null);}} onClose={()=>setEditTx(null)}/>}
     </div>
   );
 }
 
-function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
+function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete,onEdit}){
   const curKey=CUR_Y+"-"+String(CUR_M+1).padStart(2,"0");
   const cur=txs.filter(t=>mKey(t.date)===curKey);
   const ytd=txs.filter(t=>new Date(t.date).getFullYear()===CUR_Y);
@@ -371,7 +427,7 @@ function HomeTab({txs,ann,cfg,initBal,onAdd,onEditConti,onDelete}){
 
       <button style={S.quickAdd} onClick={onAdd}>＋ Aggiungi movimento</button>
       <div style={S.secTitle}>Movimenti recenti</div>
-      {recent.length===0?<div style={S.empty}>Nessuna transazione ancora.<br/>Premi + per iniziare.</div>:recent.map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete}/>)}
+      {recent.length===0?<div style={S.empty}>Nessuna transazione ancora.<br/>Premi + per iniziare.</div>:recent.map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete} onEdit={onEdit}/>)}
     </div>
   );
 }
@@ -611,7 +667,7 @@ function FiscaleTab({txs,cfg,setCfg}){
   );
 }
 
-function ReportTab({txs,onDelete}){
+function ReportTab({txs,onDelete,onEdit}){
   const [vm,setVm]=useState(CUR_M);const [vy,setVy]=useState(CUR_Y);const [filt,setFilt]=useState("all");
   const key=vy+"-"+String(vm+1).padStart(2,"0");
   const cur=txs.filter(t=>mKey(t.date)===key);
@@ -635,7 +691,7 @@ function ReportTab({txs,onDelete}){
           <button key={f.id} onClick={()=>setFilt(f.id)} style={{...S.chip,...(filt===f.id?{background:"#dbeafe",borderColor:"#2563eb",color:"#2563eb",fontWeight:700}:{})}}>{f.l}</button>
         ))}
       </div>
-      {disp.length===0?<div style={S.empty}>Nessuna transazione.</div>:[...disp].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete}/>)}
+      {disp.length===0?<div style={S.empty}>Nessuna transazione.</div>:[...disp].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=><TxRow key={tx.id} tx={tx} onDelete={onDelete} onEdit={onEdit}/>)}
     </div>
   );
 }
