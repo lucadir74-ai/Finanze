@@ -204,7 +204,7 @@ function EditTxModal({tx,onSave,onDelete,onClose}){
 }
 
 // Modal impostazione saldi iniziali
-function ContiModal({initBal,onSave,onClose}){
+function ContiModal({initBal,onSave,onClose,onReset}){
   const [fineco,setFineco]=useState(String(initBal.fineco||""));
   const [ing,setIng]=useState(String(initBal.ing||""));
   const [contanti,setContanti]=useState(String(initBal.contanti||""));
@@ -238,6 +238,8 @@ function ContiModal({initBal,onSave,onClose}){
           </div>
         </div>
         <button style={S.primaryBtn} onClick={()=>onSave({fineco:Number(fineco)||0,ing:Number(ing)||0,contanti:Number(contanti)||0})}>Salva saldi</button>
+        <button onClick={onReset} style={{width:"100%",marginTop:10,padding:"12px",borderRadius:11,border:"1.5px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:14,fontWeight:700,cursor:"pointer"}}>🔄 Reset — riparti da zero</button>
+        <div style={{color:"#94a3b8",fontSize:11,textAlign:"center",marginTop:6}}>Cancella movimenti e saldi. Ricorrenti e scadenze annuali restano.</div>
       </div>
     </div>
   );
@@ -304,6 +306,14 @@ function App(){
   const delTx=id=>setTxs(p=>p.filter(t=>t.id!==id));
   const updateTx=data=>setTxs(p=>p.map(t=>t.id===data.id?data:t));
   const saveInitBal=v=>{setInitBal(v);setShowContiModal(false);};
+  const resetAll=()=>{
+    if(!window.confirm("Azzerare TUTTI i movimenti e i saldi dei conti?\n\nRicorrenti e scadenze annuali restano."))return;
+    if(!window.confirm("Conferma definitiva. L'operazione non e' annullabile."))return;
+    setTxs([]);
+    setInitBal({fineco:0,ing:0,contanti:0});
+    setRec(p=>p.map(r=>({...r,lastApplied:"2026-08"})));
+    setShowContiModal(false);
+  };
 
   return(
     <div style={S.root}>
@@ -322,7 +332,7 @@ function App(){
           </button>
         ))}
       </nav>
-      {showContiModal&&<ContiModal initBal={initBal} onSave={saveInitBal} onClose={()=>setShowContiModal(false)}/>}
+      {showContiModal&&<ContiModal initBal={initBal} onSave={saveInitBal} onReset={resetAll} onClose={()=>setShowContiModal(false)}/>}
       {editTx&&<EditTxModal tx={editTx} onSave={data=>{updateTx(data);setEditTx(null);}} onDelete={id=>{delTx(id);setEditTx(null);}} onClose={()=>setEditTx(null)}/>}
     </div>
   );
