@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnostica Finanze</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#f0f4ff;color:#1e293b;margin:0;padding:16px}
+h1{font-size:19px;margin:0 0 4px}
+p.sub{font-size:13px;color:#64748b;margin:0 0 16px}
+.card{background:#fff;border:1px solid #dbe3f5;border-radius:14px;padding:14px;margin-bottom:12px}
+.k{font-weight:700;font-size:14px}
+.ok{color:#15803d}.ko{color:#b91c1c}
+pre{white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f8fafc;border-radius:8px;padding:8px;max-height:160px;overflow:auto;margin:8px 0 0}
+button{width:100%;background:#f0a040;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;color:#3a2a00;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>Diagnostica Finanze</h1>
+<p class="sub">Mostra cosa c'è davvero nel localStorage di questa origine.</p>
+<div id="out"></div>
+<button onclick="dl()">⬇︎ Scarica backup JSON</button>
+<script>
+var KEYS=["fin3:txs","fin3:rec","fin3:ann","fin3:cfg","fin3:initBal"];
+var out=document.getElementById("out"),dump={};
+KEYS.forEach(function(k){
+  var v=null;try{v=localStorage.getItem(k)}catch(e){}
+  dump[k]=v;
+  var n="—";
+  if(v){try{var p=JSON.parse(v);n=Array.isArray(p)?p.length+" voci":"oggetto"}catch(e){n="NON leggibile (JSON rotto)"}}
+  var d=document.createElement("div");d.className="card";
+  d.innerHTML='<div class="k">'+k+' <span class="'+(v?"ok":"ko")+'">'+(v?"PRESENTE":"ASSENTE")+'</span></div>'+
+    '<div style="font-size:13px;color:#64748b">'+n+(v?" · "+v.length+" caratteri":"")+'</div>'+
+    (v?'<pre>'+v.slice(0,3000).replace(/</g,"&lt;")+'</pre>':'');
+  out.appendChild(d);
+});
+var altre=[];
+try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(KEYS.indexOf(k)<0)altre.push(k)}}catch(e){}
+var d=document.createElement("div");d.className="card";
+d.innerHTML='<div class="k">Altre chiavi presenti su questa origine</div><div style="font-size:13px;color:#64748b">'+(altre.length?altre.join(", "):"nessuna")+'</div>';
+out.appendChild(d);
+function dl(){
+  var b=new Blob([JSON.stringify(dump,null,2)],{type:"application/json"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(b);
+  a.download="finanze-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();
+}
+</script>
+</body>
+</html>
