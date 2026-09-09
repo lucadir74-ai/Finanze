@@ -68,7 +68,43 @@ function mKey(d){const x=new Date(d);return x.getFullYear()+"-"+String(x.getMont
 function sumType(txs,t){return txs.filter(x=>x.txType===t).reduce((s,x)=>s+Number(x.amount),0)}
 function sumGroup(txs,g){return txs.filter(x=>TX_TYPES[x.txType]?.group===g).reduce((s,x)=>s+Number(x.amount),0)}
 function sLoad(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch{return null}}
-function sSave(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+var ALLOW_EMPTY=false;
+function sSave(k,v){try{
+  if(!ALLOW_EMPTY&&Array.isArray(v)&&v.length===0){const o=localStorage.getItem(k);if(o&&o!=="[]")return;}
+  localStorage.setItem(k,JSON.stringify(v));
+}catch{}}
+function finSnapshot(){try{
+  const d={txs:sLoad("fin3:txs"),rec:sLoad("fin3:rec"),ann:sLoad("fin3:ann"),cfg:sLoad("fin3:cfg"),initBal:sLoad("fin3:initBal")};
+  const has=(d.txs&&d.txs.length)||(d.rec&&d.rec.length)||(d.ann&&d.ann.length);
+  if(has)localStorage.setItem("fin3:bak",JSON.stringify({ts:new Date().toISOString(),data:d}));
+}catch{}}
+function finExport(){try{
+  const d={txs:sLoad("fin3:txs")||[],rec:sLoad("fin3:rec")||[],ann:sLoad("fin3:ann")||[],cfg:sLoad("fin3:cfg"),initBal:sLoad("fin3:initBal")};
+  const b=new Blob([JSON.stringify({app:"finanze",v:1,ts:new Date().toISOString(),data:d},null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);
+  a.download="finanze-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();
+}catch(e){alert("Esportazione fallita: "+e.message)}}
+function finImport(file){
+  const r=new FileReader();
+  r.onload=function(){try{
+    const j=JSON.parse(r.result);
+    let d=(j&&j.data)?j.data:j;
+    if(d&&typeof d["fin3:txs"]!=="undefined"){
+      const P=function(x){try{return typeof x==="string"?JSON.parse(x):x}catch(e){return null}};
+      d={txs:P(d["fin3:txs"])||[],rec:P(d["fin3:rec"])||[],ann:P(d["fin3:ann"])||[],cfg:P(d["fin3:cfg"]),initBal:P(d["fin3:initBal"])};
+    }
+    if(!d||!Array.isArray(d.txs))throw new Error("formato non riconosciuto");
+    if(!window.confirm("Sostituire i dati attuali con il backup"+(j.ts?" del "+String(j.ts).slice(0,10):"")+"?\n\nMovimenti nel file: "+d.txs.length+"\nRicorrenti: "+((d.rec||[]).length)))return;
+    ALLOW_EMPTY=true;
+    localStorage.setItem("fin3:txs",JSON.stringify(d.txs));
+    localStorage.setItem("fin3:rec",JSON.stringify(d.rec||[]));
+    localStorage.setItem("fin3:ann",JSON.stringify(d.ann||[]));
+    if(d.cfg)localStorage.setItem("fin3:cfg",JSON.stringify(d.cfg));
+    if(d.initBal)localStorage.setItem("fin3:initBal",JSON.stringify(d.initBal));
+    location.reload();
+  }catch(e){alert("Importazione fallita: "+e.message)}};
+  r.readAsText(file);
+}
 
 function contoBal(txs,initBal,conto){
   const rel=txs.filter(t=>t.conto===conto);
@@ -205,6 +241,7 @@ function EditTxModal({tx,onSave,onDelete,onClose}){
 
 // Modal impostazione saldi iniziali
 function ContiModal({initBal,onSave,onClose,onReset}){
+  const fileRef=React.useRef(null);
   const [fineco,setFineco]=useState(String(initBal.fineco||""));
   const [ing,setIng]=useState(String(initBal.ing||""));
   const [contanti,setContanti]=useState(String(initBal.contanti||""));
@@ -238,6 +275,12 @@ function ContiModal({initBal,onSave,onClose,onReset}){
           </div>
         </div>
         <button style={S.primaryBtn} onClick={()=>onSave({fineco:Number(fineco)||0,ing:Number(ing)||0,contanti:Number(contanti)||0})}>Salva saldi</button>
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <button onClick={finExport} style={{flex:1,padding:"12px",borderRadius:11,border:"1.5px solid #bfdbfe",background:"#eff6ff",color:"#1d4ed8",fontSize:14,fontWeight:700,cursor:"pointer"}}>⬇︎ Esporta</button>
+          <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{flex:1,padding:"12px",borderRadius:11,border:"1.5px solid #bbf7d0",background:"#f0fdf4",color:"#15803d",fontSize:14,fontWeight:700,cursor:"pointer"}}>⬆︎ Importa</button>
+        </div>
+        <input ref={fileRef} type="file" accept="application/json,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];if(f)finImport(f);e.target.value="";}}/>
+        <div style={{color:"#94a3b8",fontSize:11,textAlign:"center",marginTop:6}}>Esporta un file di backup e conservalo fuori dal telefono.</div>
         <button onClick={onReset} style={{width:"100%",marginTop:10,padding:"12px",borderRadius:11,border:"1.5px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:14,fontWeight:700,cursor:"pointer"}}>🔄 Reset — riparti da zero</button>
         <div style={{color:"#94a3b8",fontSize:11,textAlign:"center",marginTop:6}}>Cancella movimenti e saldi. Ricorrenti e scadenze annuali restano.</div>
       </div>
@@ -257,7 +300,12 @@ function App(){
   const [ready,setReady]=useState(false);
 
   useEffect(()=>{
-    const a=sLoad("fin3:txs"),b=sLoad("fin3:rec"),c=sLoad("fin3:ann"),d=sLoad("fin3:cfg"),e=sLoad("fin3:initBal");
+    let a=sLoad("fin3:txs"),b=sLoad("fin3:rec"),c=sLoad("fin3:ann"),d=sLoad("fin3:cfg"),e=sLoad("fin3:initBal");
+    const vuoto=!(a&&a.length)&&!(b&&b.length)&&!(c&&c.length);
+    const bak=sLoad("fin3:bak");
+    if(vuoto&&bak&&bak.data&&window.confirm("I dati risultano vuoti.\n\nC'e' un backup interno del "+String(bak.ts).slice(0,10)+" con "+((bak.data.txs||[]).length)+" movimenti e "+((bak.data.rec||[]).length)+" ricorrenti.\n\nRipristinarlo?")){
+      a=bak.data.txs;b=bak.data.rec;c=bak.data.ann;d=bak.data.cfg||d;e=bak.data.initBal||e;ALLOW_EMPTY=true;setTimeout(function(){ALLOW_EMPTY=false},2000);
+    }
     if(a)setTxs(a);if(b)setRec(b);if(c)setAnn(c);if(d)setCfg(d);if(e)setInitBal(e);
     setReady(true);
   },[]);
@@ -266,6 +314,7 @@ function App(){
   useEffect(()=>{if(ready)sSave("fin3:ann",ann);},[ann,ready]);
   useEffect(()=>{if(ready)sSave("fin3:cfg",cfg);},[cfg,ready]);
   useEffect(()=>{if(ready)sSave("fin3:initBal",initBal);},[initBal,ready]);
+  useEffect(()=>{if(ready)finSnapshot();},[txs,rec,ann,cfg,initBal,ready]);
 
   // Applicazione automatica delle ricorrenti mensili
   const recChecked=React.useRef(false);
@@ -309,6 +358,7 @@ function App(){
   const resetAll=()=>{
     if(!window.confirm("Azzerare TUTTI i movimenti e i saldi dei conti?\n\nRicorrenti e scadenze annuali restano."))return;
     if(!window.confirm("Conferma definitiva. L'operazione non e' annullabile."))return;
+    ALLOW_EMPTY=true;setTimeout(function(){ALLOW_EMPTY=false},2000);
     setTxs([]);
     setInitBal({fineco:0,ing:0,contanti:0});
     setRec(p=>p.map(r=>({...r,lastApplied:"2026-08"})));
